@@ -145,10 +145,14 @@ function Setup({
   const [providerBinding, setProviderBinding] = useState<EnvBinding | null>(
     null,
   );
-  const [runtimeAiBinding, setRuntimeAiBinding] = useState<AiConnectionBinding | undefined>(() =>
-    brandType === "opencode_local"
-      ? { provider: "openrouter", method: "api_key", mode: "responsible_user" }
-      : undefined,
+  // OpenCode is a multi-provider adapter: it can run any of the models it
+  // discovers (OpenRouter, OpenAI, Anthropic, xAI, Ollama, local runtime, ...).
+  // Do not pre-bind the OpenRouter managed connection here. A pre-bound
+  // connection forces the model list through the OpenRouter catalog and hides
+  // every other discovered provider. Leave the binding unset until the operator
+  // explicitly chooses a connection via AiConnectionField.
+  const [runtimeAiBinding, setRuntimeAiBinding] = useState<AiConnectionBinding | undefined>(
+    undefined,
   );
   const [connection, setConnection] = useState<ProviderConnection | null>(null);
   const aiBinding = runtimeAiBinding ?? connection?.aiConnection;
