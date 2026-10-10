@@ -20,6 +20,8 @@ export const HERMES_PROVIDER_KEYS: Record<string, string> = {
   zai: "ZAI_API_KEY",
   "kimi-coding": "KIMI_API_KEY",
   minimax: "MINIMAX_API_KEY",
+  // Ollama Cloud uses an Ollama API key against https://ollama.com/v1.
+  "ollama-cloud": "OLLAMA_API_KEY",
 };
 
 export function setupProviderKeys(adapter: string) {

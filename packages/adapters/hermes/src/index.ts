@@ -43,8 +43,36 @@ export {
  * Hermes supports any model via any provider. The Paperclip UI should
  * prefer detectModel() plus manual entry over curated placeholder models,
  * since Hermes availability depends on the user's local configuration.
+ *
+ * Ollama Cloud models are listed because they are not discoverable by model
+ * prefix (their ids are bare slugs like `kimi-k3`, `glm-5.3`), so a curated
+ * list is the only way the picker can offer them. The provider is inferred as
+ * `ollama-cloud` for these ids via MODEL_PREFIX_PROVIDER_HINTS.
  */
-export const models: { id: string; label: string }[] = [];
+export const models: { id: string; label: string }[] = [
+  "nemotron-3-super",
+  "nemotron-3-ultra",
+  "nemotron-3-nano:30b",
+  "glm-5.3",
+  "glm-5.3-flash",
+  "glm-5.2",
+  "kimi-k3",
+  "kimi-k2.7-code",
+  "kimi-k2.6",
+  "deepseek-v4.1-flash",
+  "deepseek-v4-pro:0813",
+  "minimax-m3",
+  "minimax-m2.7",
+  "minimax-m2.5",
+  "gpt-oss:120b",
+  "gpt-oss:20b",
+  "mistral-large-3:675b",
+  "qwen3.5:397b",
+  "gemma4:31b",
+].map((id) => ({
+  id: `ollama-cloud/${id}`,
+  label: `ollama-cloud/${id}`,
+}));
 
 const sessionManagement: AdapterSessionManagement = {
   supportsSessionResume: true,

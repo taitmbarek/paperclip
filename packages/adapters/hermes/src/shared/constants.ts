@@ -45,6 +45,10 @@ export const VALID_PROVIDERS = [
   "minimax",
   "minimax-cn",
   "kilocode",
+  // Ollama Cloud (https://ollama.com/v1, OLLAMA_API_KEY). Present in Hermes's
+  // own provider registry; Paperclip must accept it for the model picker and
+  // run routing to work.
+  "ollama-cloud",
 ] as const;
 
 /**
@@ -85,6 +89,8 @@ export const MODEL_PREFIX_PROVIDER_HINTS: [string, string][] = [
   ["mistral", "auto"],
   // HuggingFace models (org/model format)
   ["huggingface/", "huggingface"],
+  // Ollama Cloud (explicit namespace so an unset provider still routes here)
+  ["ollama-cloud/", "ollama-cloud"],
 ];
 
 /** Regex to extract session ID from Hermes CLI output. */

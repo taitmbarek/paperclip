@@ -11,6 +11,7 @@ function providerLabel(provider: string): string {
   if (provider === "openai-codex") return "OpenAI Codex";
   if (provider === "kimi-coding") return "Kimi Coding";
   if (provider === "minimax-cn") return "MiniMax China";
+  if (provider === "ollama-cloud") return "Ollama Cloud";
   return provider
     .split("-")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))

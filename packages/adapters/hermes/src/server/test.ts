@@ -145,15 +145,22 @@ async function checkApiKeys(
     if (typeof value === "string" && value.length > 0) resolvedEnv[key] = value;
   }
 
-  // Also read ~/.hermes/.env — Hermes stores API keys there by default and does
-  // not export them to the parent process, so Paperclip's process.env won't
-  // contain them.  Parsing this file ensures the environment test reports
-  // accurate results for keys that Hermes already knows about.
+  // Also read Hermes's own env file(s) — Hermes stores API keys there by default
+  // and does not export them to the parent process, so Paperclip's process.env
+  // won't contain them. Parsing these files ensures the environment test reports
+  // accurate results for keys Hermes already knows about.
+  //
+  // Hermes honours an *active profile*: when `~/.hermes/active_profile` names one,
+  // `~/.hermes/profiles/<name>/.env` is authoritative and the root `.env` is not
+  // consulted for credentials. Read both, most-specific first.
   const hermesEnvKeys: Record<string, string> = {};
-  try {
-    const homeDir = process.env.HOME || process.env.USERPROFILE || "/root";
-    const hermesEnvPath = `${homeDir}/.hermes/.env`;
-    const content = readFileSync(hermesEnvPath, "utf-8");
+  const parseEnvFile = (filePath: string): void => {
+    let content: string;
+    try {
+      content = readFileSync(filePath, "utf-8");
+    } catch {
+      return; // Missing file is fine.
+    }
     for (const line of content.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) continue;
@@ -161,11 +168,22 @@ async function checkApiKeys(
       if (eqIdx > 0) {
         const key = trimmed.substring(0, eqIdx).trim();
         const value = trimmed.substring(eqIdx + 1).trim();
-        if (value.length > 0) hermesEnvKeys[key] = value;
+        if (value.length > 0 && hermesEnvKeys[key] === undefined) {
+          hermesEnvKeys[key] = value;
+        }
       }
     }
-  } catch {
-    // ~/.hermes/.env may not exist — that's fine
+  };
+  {
+    const homeDir = process.env.HOME || process.env.USERPROFILE || "/root";
+    const hermesHome = process.env.HERMES_HOME || `${homeDir}/.hermes`;
+    try {
+      const activeProfile = readFileSync(`${hermesHome}/active_profile`, "utf-8").trim();
+      if (activeProfile) parseEnvFile(`${hermesHome}/profiles/${activeProfile}/.env`);
+    } catch {
+      // No active profile — fall back to the root env file below.
+    }
+    parseEnvFile(`${hermesHome}/.env`);
   }
 
   const has = (key: string): boolean =>
@@ -177,6 +195,7 @@ async function checkApiKeys(
   const hasZai = has("ZAI_API_KEY");
   const hasKimi = has("KIMI_API_KEY");
   const hasMiniMax = has("MINIMAX_API_KEY");
+  const hasOllamaCloud = has("OLLAMA_API_KEY");
 
   const providers: string[] = [];
   if (hasAnthropic) providers.push("Anthropic");
@@ -185,6 +204,7 @@ async function checkApiKeys(
   if (hasZai) providers.push("Z.AI");
   if (hasKimi) providers.push("Kimi");
   if (hasMiniMax) providers.push("MiniMax");
+  if (hasOllamaCloud) providers.push("Ollama Cloud");
 
   if (providers.length > 0) {
     return {
@@ -237,7 +257,7 @@ async function checkApiKeys(
   return {
     level: "warn",
     message: "No LLM API keys found in environment",
-    hint: "Set API keys in the agent's env secrets or ~/.hermes/.env. Hermes supports: ANTHROPIC_API_KEY, OPENROUTER_API_KEY, OPENAI_API_KEY, ZAI_API_KEY, KIMI_API_KEY, MINIMAX_API_KEY",
+    hint: "Set API keys in the agent's env secrets or ~/.hermes/.env. Hermes supports: ANTHROPIC_API_KEY, OPENROUTER_API_KEY, OPENAI_API_KEY, ZAI_API_KEY, KIMI_API_KEY, MINIMAX_API_KEY, OLLAMA_API_KEY",
     code: "hermes_no_api_keys",
   };
 }
@@ -266,8 +286,16 @@ async function checkProviderConsistency(
   });
 
   // If provider was explicitly set but doesn't match what Hermes config says,
-  // that's worth flagging.
-  if (explicitProvider && detectedConfig?.provider && explicitProvider !== detectedConfig.provider) {
+  // that's worth flagging — but NOT when the explicit provider is ollama-cloud.
+  // ~/.hermes/config.yaml holds a single global default (e.g. openai-codex);
+  // a per-agent ollama-cloud override is a deliberate, supported choice and
+  // must not be reported as a mismatch.
+  if (
+    explicitProvider &&
+    explicitProvider !== "ollama-cloud" &&
+    detectedConfig?.provider &&
+    explicitProvider !== detectedConfig.provider
+  ) {
     return {
       level: "warn",
       message: `Provider mismatch: adapterConfig has "${explicitProvider}" but ~/.hermes/config.yaml has "${detectedConfig.provider}". Using adapterConfig value.`,
