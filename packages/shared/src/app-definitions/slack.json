@@ -30,7 +30,9 @@
         "scopesHint": [
           "channels:read",
           "chat:write",
-          "search:read"
+          "search:read.public",
+          "search:read.private",
+          "search:read.files"
         ]
       },
       "guidanceMd": "Connect a Slack workspace and limit access to the channels agents need.",

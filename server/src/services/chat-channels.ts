@@ -262,6 +262,7 @@ import {
 import { isExternalChatWaitAuthorizationContention } from "./native-runtime/chat-attachment-reuse.js";
 import { projectSafeChatPublication } from "./chat-publication-projection.js";
 import { safeChatTaskUrl } from "./chat-task-url.js";
+import { slackClient } from "./connectors/slack-client.js";
 import {
   resyncGitHubAppWebhook,
   listGitHubAppWebhookDeliveries,
@@ -325,6 +326,9 @@ import {
   type ChatProviderLifecycleEffect,
 } from "./chat-provider-lifecycle.js";
 import {
+  CHAT_QUESTION_ACTION_TOKEN_TTL_MS,
+  createChatConfirmationActionToken,
+  createChatQuestionOptionActionToken,
   enqueueTerminalIssueInteractionChatPublications,
   nativeChatQuestion,
   nativeTelegramConfirmation,
@@ -5872,6 +5876,8 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       allowDirectMessages: endpoint.allowDirectMessages,
       allowGroupChats: endpoint.allowGroupChats,
       allowUnlinkedPeople: endpoint.allowUnlinkedPeople,
+      notifyOnInput: endpoint.notifyOnInput,
+      notificationResourceId: endpoint.notificationResourceId,
       replyMode: "subscribed",
       capabilities: endpoint.capabilities,
       setup: {
@@ -6118,6 +6124,31 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           values.allowGroupChats = input.allowGroupChats;
         if (input.allowUnlinkedPeople !== undefined)
           values.allowUnlinkedPeople = input.allowUnlinkedPeople;
+        if (input.notifyOnInput !== undefined) {
+          if (existing.endpoint.provider !== "slack")
+            throw unprocessable("Input-request notifications are currently supported for Slack connections");
+          values.notifyOnInput = input.notifyOnInput;
+        }
+        if (input.notificationResourceId !== undefined) {
+          if (existing.endpoint.provider !== "slack")
+            throw unprocessable("Input-request notifications are currently supported for Slack connections");
+          if (input.notificationResourceId) {
+            const resource = await db
+              .select({ id: chatEndpointResources.id, type: chatEndpointResources.type })
+              .from(chatEndpointResources)
+              .where(
+                and(
+                  eq(chatEndpointResources.companyId, existing.endpoint.companyId),
+                  eq(chatEndpointResources.endpointId, endpointId),
+                  eq(chatEndpointResources.id, input.notificationResourceId),
+                ),
+              )
+              .then((rows) => rows[0] ?? null);
+            if (!resource || resource.type !== "channel")
+              throw unprocessable("Notification target must be a channel on this Slack connection");
+          }
+          values.notificationResourceId = input.notificationResourceId;
+        }
         await db.transaction(async (tx) => {
           await credentialLease.assertOwned(tx);
           await tx
@@ -6757,6 +6788,148 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       return { ...values, ...configuration, lineId: configuration.allocation === "shared" ? photonSharedScope(configuration.projectId) : configuration.lineId };
     }
     return values;
+  }
+
+
+  /**
+   * Resolve a button click from a direct input-request notification. These
+   * actions carry no conversation, so the interaction is resolved directly and
+   * the token is consumed here.
+   */
+  async function resolveInputNotifyAction(
+    endpoint: EndpointRow,
+    action: typeof chatActions.$inferSelect,
+    principalId: string,
+  ): Promise<void> {
+    if (action.status === "processed") return;
+    if (action.status !== "issued") return;
+    const token = action.payload as {
+      version?: number;
+      interactionId?: string;
+      optionId?: string;
+      questionId?: string;
+      decision?: "accept" | "reject";
+      expiresAt?: string;
+    };
+    if (
+      token.version !== 1 ||
+      typeof token.interactionId !== "string" ||
+      (typeof token.expiresAt === "string" &&
+        Date.parse(token.expiresAt) <= Date.now())
+    )
+      return;
+
+    const interaction = await db
+      .select()
+      .from(issueThreadInteractions)
+      .where(
+        and(
+          eq(issueThreadInteractions.companyId, endpoint.companyId),
+          eq(issueThreadInteractions.id, token.interactionId),
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+    if (!interaction || interaction.status !== "pending") return;
+    const issue = await db
+      .select()
+      .from(issues)
+      .where(
+        and(
+          eq(issues.companyId, endpoint.companyId),
+          eq(issues.id, interaction.issueId),
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+    if (!issue) return;
+
+    // The resolving actor is the linked Paperclip user who clicked.
+    const linkedUser = await db
+      .select({ userId: chatIdentityLinks.paperclipUserId })
+      .from(chatExternalPrincipals)
+      .innerJoin(
+        chatIdentityLinks,
+        and(
+          eq(chatIdentityLinks.companyId, chatExternalPrincipals.companyId),
+          eq(chatIdentityLinks.principalId, chatExternalPrincipals.id),
+        ),
+      )
+      .where(
+        and(
+          eq(chatExternalPrincipals.companyId, endpoint.companyId),
+          eq(chatExternalPrincipals.id, principalId),
+        ),
+      )
+      .then((rows) => rows[0]?.userId ?? null);
+    if (!linkedUser) return;
+    const actor = { userId: linkedUser };
+
+    const hydrated = interaction as unknown as IssueThreadInteraction;
+    try {
+      if (action.kind === "input_notify_decision") {
+        if (token.decision === "accept")
+          await issueThreadInteractionService(db).acceptInteraction(
+            issue,
+            interaction.id,
+            {},
+            actor,
+          );
+        else
+          await issueThreadInteractionService(db).rejectInteraction(
+            issue,
+            interaction.id,
+            {},
+            actor,
+          );
+      } else {
+        const question =
+          hydrated.kind === "ask_user_questions"
+            ? hydrated.payload.questions.find(
+                (entry) => entry.id === token.questionId,
+              )
+            : null;
+        const option = question?.options.find(
+          (entry) => entry.id === token.optionId,
+        );
+        if (!question || !option) return;
+        await issueThreadInteractionService(db).answerQuestions(
+          issue,
+          interaction.id,
+          {
+            answers: [
+              {
+                questionId: question.id,
+                optionIds: [option.id],
+              },
+            ],
+          } as never,
+          actor,
+        );
+      }
+      await db
+        .update(chatActions)
+        .set({
+          status: "processed",
+          result: { code: "input_notify_resolved" },
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(chatActions.id, action.id),
+            eq(chatActions.status, "issued"),
+          ),
+        );
+    } catch (error) {
+      // Leave the token `issued` so the operator can retry in Paperclip.
+      logger.warn(
+        {
+          endpointId: endpoint.id,
+          actionId: action.id,
+          interactionId: token.interactionId,
+          reason: `${error instanceof Error ? error.stack ?? error.message : String(error)}`.slice(0, 500),
+        },
+        "input-notify: resolution failed",
+      );
+    }
   }
 
   async function acquireCredentialMutationLease(endpoint: EndpointRow) {
@@ -20289,11 +20462,26 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
             "question_answer",
             "question_form_open",
             "confirmation_response",
+            "input_notify_answer",
+            "input_notify_decision",
           ]),
           eq(chatActions.providerActionId, sourceActionId),
         ),
       )
       .then((rows) => (rows.length === 1 ? rows[0]! : null));
+    // Direct input-request notifications have no conversation row, so they
+    // resolve here before any conversation-dependent handling below.
+    if (
+      actionBinding?.kind === "input_notify_answer" ||
+      actionBinding?.kind === "input_notify_decision"
+    ) {
+      await resolveInputNotifyAction(
+        record.endpoint,
+        actionBinding,
+        principal.principal.id,
+      );
+      return;
+    }
     const originalPublicationId = actionBinding?.payload.publicationId;
     const actionInteractionId = actionBinding?.payload.interactionId;
     if (

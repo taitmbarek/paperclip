@@ -89,6 +89,10 @@ export const updateChatEndpointSchema = z
     allowDirectMessages: z.boolean().optional(),
     allowGroupChats: z.boolean().optional(),
     allowUnlinkedPeople: z.boolean().optional(),
+    // Outbound input-request notifications. `notificationResourceId` names a
+    // chatEndpointResources row of type "channel" on this endpoint.
+    notifyOnInput: z.boolean().optional(),
+    notificationResourceId: z.string().uuid().nullable().optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {

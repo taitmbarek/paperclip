@@ -249,6 +249,10 @@ export interface ChatEndpoint {
   allowDirectMessages: boolean;
   allowGroupChats: boolean;
   allowUnlinkedPeople: boolean;
+  /** Opt-in outbound notification for input/approval requests. */
+  notifyOnInput: boolean;
+  /** chatEndpointResources id of the channel that receives notifications. */
+  notificationResourceId: string | null;
   replyMode: "subscribed";
   capabilities: ChatAdapterCapabilities;
   setup: ChatEndpointSetupState;
@@ -487,6 +491,8 @@ export interface UpdateChatEndpointInput {
   allowDirectMessages?: boolean;
   allowGroupChats?: boolean;
   allowUnlinkedPeople?: boolean;
+  notifyOnInput?: boolean;
+  notificationResourceId?: string | null;
 }
 
 export interface ConfigureChatEndpointInput {

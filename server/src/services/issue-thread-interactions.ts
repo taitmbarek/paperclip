@@ -1,6 +1,7 @@
 import { currentContinuationOrigins } from "./execution-continuation.js";
 import { assertAgentRunWriteAllowed } from "../agent-run-cancellation.js";
 import { connectionIntentDeliveries } from "@paperclipai/db";
+import { notifyInputRequestEndpoints as defaultNotifyInputRequest } from "./chat-input-notifications.js";
 import { isDeepStrictEqual } from "node:util";
 import {
   and,
@@ -178,7 +179,15 @@ export type IssueThreadInteractionServiceOptions = {
   wakeup?: InteractionWakeup;
   pullRequestCacheTtlMs?: number;
   now?: () => Date;
-};
+  /**
+   * Best-effort outbound notification (e.g. Slack) for a newly created input
+   * request. Injected to avoid a circular import with the chat service.
+   */
+  notifyInputRequest?: (input: {
+    companyId: string;
+    issueId: string;
+    interaction: IssueThreadInteraction;
+  }) => Promise<unknown>;};
 
 type DbTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type InteractionResolutionMutationOptions = {
@@ -3648,6 +3657,22 @@ export function issueThreadInteractionService(
         interactionKind: interaction.kind,
         usedDeprecatedResolverPolicyAlias,
       });
+      // Outbound Slack notification for ANY task (including tasks that did not
+      // start in Slack). Defaults to the standalone notifier so every creation
+      // path is covered; opts injects a test double when needed. Best-effort and
+      // never blocks task creation.
+      void (opts.notifyInputRequest
+        ? opts.notifyInputRequest({
+            companyId: issue.companyId,
+            issueId: issue.id,
+            interaction,
+          })
+        : defaultNotifyInputRequest(db, {
+            companyId: issue.companyId,
+            issueId: issue.id,
+            interaction,
+          })
+      )?.catch(() => {});
       return interaction;
     },
 

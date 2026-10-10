@@ -72,6 +72,11 @@ export const chatEndpoints = pgTable(
     allowUnlinkedPeople: boolean("allow_unlinked_people")
       .notNull()
       .default(true),
+    // Opt-in outbound notifications: when true, an input/approval request raised
+    // by ANY task (not only Slack-originated ones) is posted to the channel named
+    // by `notificationResourceId`. A chatEndpointResources row of type "channel".
+    notifyOnInput: boolean("notify_on_input").notNull().default(false),
+    notificationResourceId: uuid("notification_resource_id"),
     concurrencyPolicy: text("concurrency_policy")
       .$type<ChatConcurrencyPolicy>()
       .notNull()

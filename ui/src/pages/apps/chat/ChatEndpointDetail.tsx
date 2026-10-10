@@ -524,6 +524,48 @@ function Settings({
           )}
         </div>
       )}
+      {endpoint.provider === "slack" && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold">Input requests</h3>
+          <SettingToggle
+            label="Notify this channel when a task needs input"
+            detail="Whenever any task — even one that did not start in Slack — asks for input or confirmation, post it here with buttons. Requires a notification channel below."
+            checked={endpoint.notifyOnInput ?? false}
+            pending={updateEndpoint.isPending}
+            onChange={(notifyOnInput) =>
+              updateEndpoint.mutate({ notifyOnInput })
+            }
+          />
+          <div className="flex items-center gap-3 border-b border-border pb-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">Notification channel</p>
+              <p className="text-xs text-muted-foreground">
+                Channel that receives input-request notifications.
+              </p>
+            </div>
+            <select
+              className="rounded-md border border-border bg-transparent px-2 py-1.5 text-sm"
+              aria-label="Notification channel"
+              value={endpoint.notificationResourceId ?? ""}
+              disabled={updateEndpoint.isPending}
+              onChange={(event) =>
+                updateEndpoint.mutate({
+                  notificationResourceId: event.target.value || null,
+                })
+              }
+            >
+              <option value="">None</option>
+              {resources
+                .filter((resource) => resource.type === "channel")
+                .map((resource) => (
+                  <option key={resource.id} value={resource.id}>
+                    {resource.label}
+                  </option>
+                ))}
+            </select>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

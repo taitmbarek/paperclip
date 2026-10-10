@@ -114,6 +114,8 @@ export interface ChatEndpoint {
   allowDirectMessages?: boolean;
   allowGroupChats?: boolean;
   allowUnlinkedPeople: boolean;
+  notifyOnInput?: boolean;
+  notificationResourceId?: string | null;
   replyMode?: "subscribed" | "mention_each_reply" | null;
   healthMessage?: string | null;
   lastError?: string | null;
